@@ -7,7 +7,16 @@ import { asc } from "drizzle-orm";
 import { users } from "./database/schema";
 import { eq } from "drizzle-orm";
 import { foodMenu } from "./database/schema";
+import os from "os"
 // seed() //uncomment this to seed database
+
+
+if(os.platform() === "win32"){
+  console.log("Here's a nickel, Get yourself a real OS and stop using windows")
+  
+}
+
+
 
 const app = new Elysia()
   .get("/", () => "Hello Elysia")

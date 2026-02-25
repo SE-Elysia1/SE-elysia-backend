@@ -30,6 +30,8 @@ to start development
 
 [API DOCS](https://www.notion.so/API-Docs-SE-Project-Group-1-3120967b2982805398c9d3c04d5bee0c?pvs=162&t=3120967b298280399c5700a9de96faf3)
 
+### note
+This backend server is best run on a GNU/Linux system
 
 ## to do
 1. Process food orders
