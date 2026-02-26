@@ -26,7 +26,8 @@ export const foodMenu = sqliteTable("food_menu", {
 export const orders = sqliteTable("orders", {
     id: integer("id").primaryKey(),
     userId: integer("user_id").references(() => users.id).notNull(), //foreign key
-    foodId: integer("food_id").references(() => foodMenu.id).notNull(), //foreign key
+    items : text("items").notNull(), //store order in JSOn like structure to handle multiple menu in 1 orders
+    totalPrice : integer("total_price").notNull(),
     pcId :  integer("pcId").references(()=>pcs.id).notNull(), //foreign key
     status: text("status").$type<"pending" | "done">().default("pending"),
     createdAt: integer("created_at").notNull(),

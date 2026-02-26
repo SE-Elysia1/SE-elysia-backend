@@ -1,7 +1,8 @@
 import cors from "@elysiajs/cors";
-import { Elysia } from "elysia";
+import { Elysia, t } from "elysia";
 //uncomment this to seed admin account and pc database
 import { orders, pcs } from "./database/schema";
+import {swagger} from "@elysiajs/swagger"
 import { db } from "./database/db";
 import { asc } from "drizzle-orm";
 import { users } from "./database/schema";
@@ -24,6 +25,14 @@ const app = new Elysia()
       references: fromTypes(),
     }),
   )
+  .use(swagger({
+    documentation: {
+        info: {
+            title: 'SE-Elysia API DOCS',
+            version: '2.0.0'
+        }
+    }
+  }))
   .use(
     cors({
       origin: [
@@ -49,6 +58,12 @@ const app = new Elysia()
         message: "Failed to get PC status",
       };
     }
+  }, {
+    response: t.Object({
+      success: t.Boolean(),
+      data: t.Optional(t.Array(t.Any())),
+      message: t.Optional(t.String()),
+    })
   })
   .get("/api/menus", async ({ set }) => {
     try {
@@ -68,6 +83,12 @@ const app = new Elysia()
         message: "Failed to get Menu items",
       };
     }
+  }, {
+    response: t.Object({
+      success: t.Boolean(),
+      data: t.Optional(t.Array(t.Any())),
+      message: t.Optional(t.String()),
+    })
   })
   .get("/api/plans", async ({ set }) => {
     return {
@@ -77,23 +98,67 @@ const app = new Elysia()
         { id: 3, hours: 10, price: 35, name: "10 Hour All-Nighter" },
       ],
     };
+  }, {
+    response: t.Object({
+      data: t.Array(t.Object({
+        id: t.Number(),
+        hours: t.Number(),
+        price: t.Number(),
+        name: t.String(),
+      }))
+    })
   })
-  .get("/api/admin/orders", async ({}) => {
-    return await db
+  .get("/api/admin/orders", async() => {
+    const rawOrders = await db
       .select({
         id: orders.id,
         customer: users.username,
-        food: foodMenu.name,
         station: pcs.pcNumber,
+        itemsJson: orders.items,
+        totalPrice: orders.totalPrice,
         status: orders.status,
         time: orders.createdAt,
       })
       .from(orders)
       .innerJoin(users, eq(orders.userId, users.id))
-      .innerJoin(foodMenu, eq(orders.foodId, foodMenu.id))
       .innerJoin(pcs, eq(orders.pcId, pcs.id))
       .where(eq(orders.status, "pending"))
       .all();
+
+    const allFood = await db.select().from(foodMenu).all();
+
+    const foodMap = new Map(allFood.map((f) => [f.id, f.name]));
+
+    const formattedOrders = rawOrders.map((order) => {
+      const cart = JSON.parse(order.itemsJson);
+
+      const itemStrings = cart.map((item: any) => {
+        const foodName = foodMap.get(item.foodId) || "Unknown Item";
+        return `${item.qty}x ${foodName}`;
+      });
+
+      return {
+        id: order.id,
+        customer: order.customer,
+        station: order.station,
+        food: itemStrings.join(", "),
+        totalPrice: order.totalPrice,
+        status: order.status,
+        time: order.time,
+      };
+    });
+
+    return formattedOrders;
+  }, {
+    response: t.Array(t.Object({
+      id: t.Number(),
+      customer: t.String(),
+      station: t.Any(),
+      food: t.String(),
+      totalPrice: t.Number(),
+      status: t.Union([t.Literal("pending"), t.Literal("done"), t.Null()]),
+      time: t.Any(),
+    }))
   })
   .post("/api/register", async ({ body, set }) => {
     const { username, password } = body as any;
@@ -139,6 +204,15 @@ const app = new Elysia()
         message: "Failed creating user, internal server error",
       };
     }
+  }, {
+    body: t.Object({
+      username: t.String(),
+      password: t.String(),
+    }),
+    response: t.Object({
+      success: t.Boolean(),
+      message: t.String(),
+    })
   })
   .post("/api/login", async ({ body, set }) => {
     const { username, password, pcId } = body as any;
@@ -195,6 +269,21 @@ const app = new Elysia()
       set.status = 500;
       return { success: false, message: `Backend error ${error}` };
     }
+  }, {
+    body: t.Object({
+      username: t.String(),
+      password: t.String(),
+      pcId: t.Number(),
+    }),
+    response: t.Object({
+      success: t.Boolean(),
+      message: t.String(),
+      user: t.Optional(t.Object({
+        id: t.Number(),
+        username: t.String(),
+        role: t.String(),
+      }))
+    })
   })
   .post("/api/logout", async ({ body, set }) => {
     const { pcNumber } = body as any;
@@ -228,28 +317,47 @@ const app = new Elysia()
         message: `Backend server error during logout ${error}`,
       };
     }
+  }, {
+    body: t.Object({
+      pcNumber: t.String(),
+    }),
+    response: t.Object({
+      success: t.Boolean(),
+      message: t.String(),
+    })
   })
   .post("/api/order", async ({ body, set }) => {
-    const { userId, foodId, pcId } = body as any;
+    const { userId, cart, pcId } = body as any;
     try {
       const user = await db
         .select()
         .from(users)
         .where(eq(users.id, userId))
         .get();
-      const food = await db
-        .select()
-        .from(foodMenu)
-        .where(eq(foodMenu.id, foodId))
-        .get();
-      if (!user || !food) {
+      if (!user) {
         set.status = 404;
         return {
           success: false,
-          message: `User or Food items is not found`,
+          message: `User is not found`,
         };
       }
-      if (user.balance < food.price) {
+      let totalPrice = 0;
+      for (const item of cart) {
+        const food = await db
+          .select()
+          .from(foodMenu)
+          .where(eq(foodMenu.id, item.foodId))
+          .get();
+        if (!food) {
+          set.status = 404;
+          return {
+            success: false,
+            message: `Food ID ${item.foodId} not found in menu!`,
+          };
+        }
+        totalPrice += food.price * item.qty;
+      }
+      if (user.balance < totalPrice) {
         set.status = 400;
         return {
           success: false,
@@ -259,26 +367,43 @@ const app = new Elysia()
       await db.transaction(async (tx) => {
         await tx.insert(orders).values({
           userId,
-          foodId,
           pcId,
+          items: JSON.stringify(cart), // Turn the cart array into a string for the DB!
+          totalPrice: totalPrice, // Save the combined cost
           createdAt: Date.now(),
         });
 
         await tx
           .update(users)
-          .set({ balance: user.balance - food.price })
+          .set({ balance: user.balance - totalPrice })
           .where(eq(users.id, userId));
       });
-
-      return { success: true, message: `Order for ${food.name} placed!` };
+      return {
+        success: true,
+        message: `Order has been placed`,
+      };
     } catch (err) {
       console.log(err);
       set.status = 500;
       return {
         success: false,
-        message: `Backend error ${err}`,
+        message: `Backend error  :  ${err}`,
       };
     }
+  }, {
+    body: t.Object({
+      userId: t.Number(),
+      pcId: t.Number(),
+      cart: t.Array(t.Object({
+        foodId: t.Number(),
+        qty: t.Number(),
+      }))
+    }),
+    response: t.Object({
+      success: t.Boolean(),
+      message: t.Optional(t.String()),
+      
+    })
   })
   .post("/api/admin/orders/complete", async ({ body, set }) => {
     const { OrderID } = body as any;
@@ -317,36 +442,102 @@ const app = new Elysia()
         message: `Backend error ${err}`,
       };
     }
+  }, {
+    body: t.Object({
+      OrderID: t.Number(),
+    }),
+    response: t.Object({
+      success: t.Boolean(),
+      message: t.Optional(t.String()),
+      messasge: t.Optional(t.String()),
+    })
   })
-  .delete('/api/admin/orders/:id', async({params, set})=>{
-    const{id}= params
-    try{
-      const orderId = Number(id)
-      const targetOrder = await db.select().from(orders).where(eq(orders.id, orderId)).get()
-      if(!targetOrder){
-        set.status = 404
-        return{
-          success : false,
-          message : `Order ${orderId} cannot be found`
-        }
-      }
-      await db.delete(orders).where(eq(orders.id, orderId))
-      return{
-        success : true,
-        message : `Order ${orderId} has been deleted`
-      }
+  .post("/api/user/topup", async ({ body, set }) => {
+    const { userId, amount } = body as any;
+
+    if (!userId || !amount || amount <= 0) {
+      set.status = 400;
+      return { success: false, message: "Valid userId and amount required" };
     }
-    catch(err){
-      set.status = 500
-      console.log(err)
-      return{
-        success : false,
-        message : `Backend error ${err}`
+
+    try {
+      const user = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId))
+        .get();
+
+      if (!user) {
+        set.status = 404;
+        return { success: false, message: "User not found" };
       }
+
+      await db
+        .update(users)
+        .set({ balance: user.balance + amount })
+        .where(eq(users.id, userId));
+
+      return {
+        success: true,
+        message: `Payment Confirmed! Added ${amount} to ${user.username}.`,
+        newBalance: user.balance + amount,
+      };
+    } catch (err) {
+      console.log("Top-up error:", err);
+      set.status = 500;
+      return { success: false, message: `Backend error during top-up` };
     }
+  }, {
+    body: t.Object({
+      userId: t.Number(),
+      amount: t.Number(),
+    }),
+    response: t.Object({
+      success: t.Boolean(),
+      message: t.String(),
+      newBalance: t.Optional(t.Number()),
+    })
+  })
+  .delete("/api/admin/orders/:id", async ({ params, set }) => {
+    const { id } = params;
+    try {
+      const orderId = Number(id);
+      const targetOrder = await db
+        .select()
+        .from(orders)
+        .where(eq(orders.id, orderId))
+        .get();
+      if (!targetOrder) {
+        set.status = 404;
+        return {
+          success: false,
+          message: `Order ${orderId} cannot be found`,
+        };
+      }
+      await db.delete(orders).where(eq(orders.id, orderId));
+      return {
+        success: true,
+        message: `Order ${orderId} has been deleted`,
+      };
+    } catch (err) {
+      set.status = 500;
+      console.log(err);
+      return {
+        success: false,
+        message: `Backend error ${err}`,
+      };
+    }
+  }, {
+    params: t.Object({
+      id: t.String(),
+    }),
+    response: t.Object({
+      success: t.Boolean(),
+      message: t.String(),
+    })
   })
   .listen(4000);
-  
+
 console.log(
   `🦊 Elysia is running at ${app.server?.hostname}:${app.server?.port}`,
 );
