@@ -41,5 +41,6 @@ export async function seed() {
   }
 
   console.log("Menu has been added");
+  console.log("Seeding successfull, please re run your server(re-comment the seed function first)")
   process.exit(0);
 }
