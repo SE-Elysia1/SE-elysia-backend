@@ -1,0 +1,13 @@
+services:
+  elysia-backend:
+    build: .
+    container_name: elysia-backend
+    restart: always
+    volumes:
+      - ./cafe.db:/app/cafe.db
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.elysia.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.elysia.entrypoints=websecure"
+      - "traefik.http.routers.elysia.tls.certresolver=myresolver"
+      - "traefik.http.services.elysia.loadbalancer.server.port=4000"
