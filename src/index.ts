@@ -556,7 +556,7 @@ const app = new Elysia()
   .post(
     "/api/session/buy",
     async ({ body, set }) => {
-      const { userId, pcId, plan } = body as any;
+      const { userId, pcId, plans } = body;
       try {
         const user = await db
           .select()
@@ -571,7 +571,7 @@ const app = new Elysia()
           };
         }
         let totalHours = 0;
-        plan.forEach((p: any) => {
+        plans.forEach((p: any) => {
           if (p.planId === 1) totalHours += p.qty * 1;
           if (p.planId === 2) totalHours += p.qty * 5;
           if (p.planId === 3) totalHours += p.qty * 10;
@@ -579,11 +579,11 @@ const app = new Elysia()
         let finalPrice = 0;
         let timeremaining = totalHours;
         const tens = Math.floor(timeremaining / 10);
-        finalPrice += 35;
+        finalPrice += tens * 35;
         timeremaining %= 10;
 
         const fives = Math.floor(timeremaining / 5);
-        finalPrice += 18;
+        finalPrice += fives * 18;
         timeremaining %= 5;
 
         const ones = timeremaining;
