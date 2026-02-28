@@ -554,7 +554,7 @@ const app = new Elysia()
     },
   )
   .post(
-    "api/session/buy",
+    "/api/session/buy",
     async ({ body, set }) => {
       const { userId, pcId, plan } = body as any;
       try {
