@@ -11,3 +11,7 @@ services:
       - "traefik.http.routers.elysia.entrypoints=websecure"
       - "traefik.http.routers.elysia.tls.certresolver=myresolver"
       - "traefik.http.services.elysia.loadbalancer.server.port=4000"
+     
+networks:
+  elysia-weather_default:
+    external: true
