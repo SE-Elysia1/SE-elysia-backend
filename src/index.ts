@@ -622,7 +622,7 @@ const app = new Elysia()
         });
         return {
           success: true,
-          message: `Billing plans has been added for ${pcId}, by user ${user.username}`,
+          message: `Billing plans has been added for  PC-${pcId}, by user ${user.username}, Plan : ${plans}`,
         };
       } catch (err) {
         set.status = 500;
