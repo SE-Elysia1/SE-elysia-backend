@@ -12,7 +12,7 @@ services:
       - "traefik.http.routers.elysia.tls.certresolver=myresolver"
       - "traefik.http.services.elysia.loadbalancer.server.port=4000"
     networks : 
-      - elysia-weather_default
+      - elysia-network
 networks:
-  elysia-weather_default:
+  elysia-network:
     external: true
