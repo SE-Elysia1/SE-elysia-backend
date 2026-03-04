@@ -326,14 +326,17 @@ const app = new Elysia()
   .post(
     "/api/logout",
     async ({ body, set }) => {
-      const { pcNumber } = body as any;
-      if (!pcNumber) {
+     
+      const { pcId } = body as { pcId: number }; 
+
+      if (!pcId) {
         set.status = 400;
         return {
           success: false,
-          message: `Please provide a pc number`,
+          message: `Please provide a PC ID`,
         };
       }
+
       try {
         await db
           .update(pcs)
@@ -343,31 +346,33 @@ const app = new Elysia()
             sessionStartTime: null,
             sessionEndTime: null,
           })
-          .where(eq(pcs.pcNumber, pcNumber));
-        console.log(`PC ${pcNumber} is now vacant again`);
+          .where(eq(pcs.id, pcId)); 
+
+        console.log(`PC ID ${pcId} is now vacant again`);
+        
         return {
           success: true,
-          message: `Logout in ${pcNumber} successfull`,
+          message: `Logout for PC ID ${pcId} successful`,
         };
       } catch (error) {
-        console.log(`logout error : ${error}`);
+        console.log(`Logout error: ${error}`);
         set.status = 500;
         return {
           success: false,
-          message: `Backend server error during logout ${error}`,
+          message: `Backend server error during logout: ${error}`,
         };
       }
     },
     {
       body: t.Object({
-        pcNumber: t.String(),
+        pcId: t.Number(), 
       }),
       response: t.Object({
         success: t.Boolean(),
         message: t.String(),
       }),
     },
-  )
+)
   .post(
     "/api/order",
     async ({ body, set }) => {
