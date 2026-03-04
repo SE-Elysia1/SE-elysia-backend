@@ -105,7 +105,7 @@ const app = new Elysia()
 
       const filters = [];
 
-      if (requester.role === "Admin") {
+      if (requester.role === "admin") {
         //They can search a specific user, or see everyone if empty
         if (targetUserId) {
           filters.push(eq(transactions.userId, Number(targetUserId)));
