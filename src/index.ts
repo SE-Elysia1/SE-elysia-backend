@@ -4,7 +4,7 @@ import { Elysia, t } from "elysia";
 import { orders, pcs } from "./database/schema";
 import { swagger } from "@elysiajs/swagger";
 import { db } from "./database/db";
-
+import { rateLimit } from "elysia-rate-limit";
 import { users } from "./database/schema";
 import { eq, and, asc } from "drizzle-orm";
 import { foodMenu } from "./database/schema";
@@ -12,6 +12,7 @@ import { transactions } from "./database/schema";
 import { openapi, fromTypes } from "@elysiajs/openapi";
 import os from "os";
 import { GelInt53 } from "drizzle-orm/gel-core";
+
 //uncomment this to seed database
 // import { seed } from "./database/seed";
 // seed()
@@ -50,6 +51,14 @@ const app = new Elysia()
         "http://127.0.0.1:5500",
         "http://localhost:8080",
       ],
+    }),
+  )
+  .use(
+    rateLimit({
+      duration: 60000,
+      max: 7,
+      errorResponse: `Too many request`,
+      scoping: `global`,
     }),
   )
   .get(
