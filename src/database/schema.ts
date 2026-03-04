@@ -32,3 +32,14 @@ export const orders = sqliteTable("orders", {
     status: text("status").$type<"pending" | "done">().default("pending"),
     createdAt: integer("created_at").notNull(),
 });
+
+export const transactions = sqliteTable("transactions", {
+    id: integer("id").primaryKey(),
+    userId: integer("user_id").references(() => users.id).notNull(),
+    type: text("type").$type<"topup" | "food" | "billing">().notNull(),
+    coins: integer("coins").notNull(), 
+    incomeIdr: integer("income_idr"), 
+    description: text("description").notNull(),
+    pcId: integer("pc_id").references(() => pcs.id),
+    createdAt: integer("created_at").notNull(), 
+});

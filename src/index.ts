@@ -4,10 +4,11 @@ import { Elysia, t } from "elysia";
 import { orders, pcs } from "./database/schema";
 import { swagger } from "@elysiajs/swagger";
 import { db } from "./database/db";
-import { asc } from "drizzle-orm";
+
 import { users } from "./database/schema";
-import { eq } from "drizzle-orm";
+import { eq, and, asc } from "drizzle-orm";
 import { foodMenu } from "./database/schema";
+import { transactions } from "./database/schema";
 import { openapi, fromTypes } from "@elysiajs/openapi";
 import os from "os";
 import { GelInt53 } from "drizzle-orm/gel-core";
@@ -74,6 +75,43 @@ const app = new Elysia()
         success: t.Boolean(),
         data: t.Optional(t.Array(t.Any())),
         message: t.Optional(t.String()),
+      }),
+    },
+  )
+  .get(
+    "/api/logs",
+    async ({ query }) => {
+      const { userId, type } = query;
+
+      const filters = [];
+
+      if (userId) {
+        filters.push(eq(transactions.userId, Number(userId)));
+      }
+
+      if (type) {
+        filters.push(eq(transactions.type, type as any));
+      }
+
+      const rawLogs = await db
+        .select()
+        .from(transactions)
+        .where(and(...filters))
+        .orderBy(asc(transactions.createdAt))
+        .all();
+
+      return rawLogs.map((log) => ({
+        ...log,
+        displayDate: new Date(log.createdAt).toLocaleString("id-ID", {
+          dateStyle: "medium",
+          timeStyle: "short",
+        }),
+      }));
+    },
+    {
+      query: t.Object({
+        userId: t.Optional(t.String()),
+        type: t.Optional(t.String()),
       }),
     },
   )
@@ -326,8 +364,7 @@ const app = new Elysia()
   .post(
     "/api/logout",
     async ({ body, set }) => {
-     
-      const { pcId } = body as { pcId: number }; 
+      const { pcId } = body as { pcId: number };
 
       if (!pcId) {
         set.status = 400;
@@ -346,10 +383,10 @@ const app = new Elysia()
             sessionStartTime: null,
             sessionEndTime: null,
           })
-          .where(eq(pcs.id, pcId)); 
+          .where(eq(pcs.id, pcId));
 
         console.log(`PC ID ${pcId} is now vacant again`);
-        
+
         return {
           success: true,
           message: `Logout for PC ID ${pcId} successful`,
@@ -365,14 +402,14 @@ const app = new Elysia()
     },
     {
       body: t.Object({
-        pcId: t.Number(), 
+        pcId: t.Number(),
       }),
       response: t.Object({
         success: t.Boolean(),
         message: t.String(),
       }),
     },
-)
+  )
   .post(
     "/api/order",
     async ({ body, set }) => {
@@ -485,6 +522,22 @@ const app = new Elysia()
           .update(orders)
           .set({ status: "done" })
           .where(eq(orders.id, OrderID));
+        await db.transaction(async (tx) => {
+          await tx
+            .update(orders)
+            .set({ status: "done" })
+            .where(eq(orders.id, OrderID));
+
+          // 📝 Log it now that it's complete
+          await tx.insert(transactions).values({
+            userId: targetOrder.userId,
+            type: "food",
+            coins: -targetOrder.totalPrice,
+            description: `Food Order: ${targetOrder.id}`,
+            pcId: targetOrder.pcId,
+            createdAt: Date.now(),
+          });
+        });
         return {
           success: true,
           messasge: `Orders ${OrderID} marked as done`,
@@ -534,7 +587,22 @@ const app = new Elysia()
           .update(users)
           .set({ balance: user.balance + amount })
           .where(eq(users.id, userId));
+        await db.transaction(async (tx) => {
+          await tx
+            .update(users)
+            .set({ balance: user.balance + amount })
+            .where(eq(users.id, userId));
 
+          // 📝 Log the real money coming in
+          await tx.insert(transactions).values({
+            userId,
+            type: "topup",
+            coins: amount,
+            incomeIdr: amount * 1000, // Example conversion: 1 coin = 1000 IDR
+            description: `Top-up: +${amount} Coins`,
+            createdAt: Date.now(),
+          });
+        });
         return {
           success: true,
           message: `Payment Confirmed! Added ${amount} to ${user.username}.`,
@@ -612,9 +680,9 @@ const app = new Elysia()
             .update(pcs)
             .set({
               status: "online",
-              currentUserId : user.id,
-              sessionStartTime : start,
-              sessionEndTime : start + duration,
+              currentUserId: user.id,
+              sessionStartTime: start,
+              sessionEndTime: start + duration,
             })
             .where(eq(pcs.id, pcId));
 
@@ -624,6 +692,15 @@ const app = new Elysia()
               balance: user.balance - finalPrice,
             })
             .where(eq(users.id, userId));
+
+          await tx.insert(transactions).values({
+            userId,
+            type: "billing",
+            coins: -finalPrice,
+            description: `Billing Packet: ${totalHours} Hours (PC-${pcId})`,
+            pcId,
+            createdAt: Date.now(),
+          });
         });
         return {
           success: true,
