@@ -27,6 +27,21 @@ const PLAN_HOURS: Record<number, number> = {
   3: 10, // 10 hours
 };
 const app = new Elysia()
+.use(
+    rateLimit({
+      duration: 60000,
+      max: 7,
+      errorResponse: `Too many request`,
+      scoping: `global`,
+      generator : (request) =>{
+        return (
+          request.headers.get('cf-connecting-ip') || 
+          request.headers.get('x-forwarded-for') || 
+          'unknown'
+        )
+      }
+    }),
+  )
   .get("/", () => "Elysia is replying from the Elysian Realm") //test
   .use(
     openapi({
@@ -53,14 +68,7 @@ const app = new Elysia()
       ],
     }),
   )
-  .use(
-    rateLimit({
-      duration: 60000,
-      max: 7,
-      errorResponse: `Too many request`,
-      scoping: `global`,
-    }),
-  )
+  
   .get(
     "/api/pcs",
     async ({ set }) => {
