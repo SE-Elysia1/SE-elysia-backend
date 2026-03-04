@@ -80,13 +80,39 @@ const app = new Elysia()
   )
   .get(
     "/api/logs",
-    async ({ query }) => {
-      const { userId, type } = query;
+    async ({ query, set }) => {
+      const { requestingUserId, targetUserId, type } = query;
+
+      if (!requestingUserId) {
+        set.status = 401;
+        return {
+          success: false,
+          message: "Unauthorized: Please provide requestingUserId",
+        };
+      }
+
+      // 🔍 Check who is asking
+      const requester = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, Number(requestingUserId)))
+        .get();
+
+      if (!requester) {
+        set.status = 401;
+        return { success: false, message: "Unauthorized: User not found" };
+      }
 
       const filters = [];
 
-      if (userId) {
-        filters.push(eq(transactions.userId, Number(userId)));
+      if (requester.role === "Admin") {
+        //They can search a specific user, or see everyone if empty
+        if (targetUserId) {
+          filters.push(eq(transactions.userId, Number(targetUserId)));
+        }
+      } else {
+        // Customer Mode: Force the filter to ONLY show their own logs!
+        filters.push(eq(transactions.userId, requester.id));
       }
 
       if (type) {
@@ -96,7 +122,8 @@ const app = new Elysia()
       const rawLogs = await db
         .select()
         .from(transactions)
-        .where(and(...filters))
+
+        .where(filters.length > 0 ? and(...filters) : undefined)
         .orderBy(asc(transactions.createdAt))
         .all();
 
@@ -110,7 +137,8 @@ const app = new Elysia()
     },
     {
       query: t.Object({
-        userId: t.Optional(t.String()),
+        requestingUserId: t.String(),
+        targetUserId: t.Optional(t.String()),
         type: t.Optional(t.String()),
       }),
     },
@@ -518,17 +546,12 @@ const app = new Elysia()
             message: `Order not found`,
           };
         }
-        await db
-          .update(orders)
-          .set({ status: "done" })
-          .where(eq(orders.id, OrderID));
         await db.transaction(async (tx) => {
           await tx
             .update(orders)
             .set({ status: "done" })
             .where(eq(orders.id, OrderID));
 
-          // 📝 Log it now that it's complete
           await tx.insert(transactions).values({
             userId: targetOrder.userId,
             type: "food",
@@ -582,23 +605,18 @@ const app = new Elysia()
           set.status = 404;
           return { success: false, message: "User not found" };
         }
-
-        await db
-          .update(users)
-          .set({ balance: user.balance + amount })
-          .where(eq(users.id, userId));
+        const idr = amount * 2000;
         await db.transaction(async (tx) => {
           await tx
             .update(users)
             .set({ balance: user.balance + amount })
             .where(eq(users.id, userId));
 
-          // 📝 Log the real money coming in
           await tx.insert(transactions).values({
             userId,
             type: "topup",
             coins: amount,
-            incomeIdr: amount * 1000, // Example conversion: 1 coin = 1000 IDR
+            incomeIdr: idr,
             description: `Top-up: +${amount} Coins`,
             createdAt: Date.now(),
           });
@@ -623,6 +641,7 @@ const app = new Elysia()
         success: t.Boolean(),
         message: t.String(),
         newBalance: t.Optional(t.Number()),
+        idr: t.Optional(t.Number()),
       }),
     },
   )

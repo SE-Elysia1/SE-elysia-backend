@@ -13,7 +13,7 @@ export async function seed() {
       balance: 99999,
     }).onConflictDoNothing();
 
-  
+    
     console.log("🖥️  Generating 30 PCs...");
     for (let i = 1; i <= 30; i++) {
 
