@@ -1,5 +1,6 @@
 # Elysia with Bun runtime
 
+API docs : https://se.elysiavernight.com/swagger
 ## Contributing
 clone / fork this repo
 ```
@@ -36,4 +37,5 @@ This backend server is best run on a GNU/Linux system
 ## to do
 1. Process food orders
 2. :>>>
+
 Open http://localhost:4000/ with your browser to see the result.
