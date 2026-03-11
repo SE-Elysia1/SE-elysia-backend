@@ -2,7 +2,7 @@ import { rateLimit } from "elysia-rate-limit";
 
 export const rateLimitMiddleware = rateLimit({
   duration: 60000,
-  max: 7,
+  max: 100,
   errorResponse: `Too many request`,
   scoping: `global`,
   generator: (request) => {
