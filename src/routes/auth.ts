@@ -90,7 +90,7 @@ export const authRoutes = new Elysia({ prefix: "/api" })
           .set({
             status: "online",
             currentUserId: user.id,
-            sessionStartTime: Date.now(),
+            
           })
           .where(eq(pcs.id, pcId));
 
@@ -133,7 +133,6 @@ export const authRoutes = new Elysia({ prefix: "/api" })
           .set({
             status: "vacant",
             currentUserId: null,
-            sessionStartTime: null,
             sessionEndTime: null,
           })
           .where(eq(pcs.id, pcId));

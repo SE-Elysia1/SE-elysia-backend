@@ -7,11 +7,31 @@ export const sessionRoutes = new Elysia({ prefix: "/api" }).post(
   "/session/buy",
   async ({ body, set }) => {
     const { userId, pcId, plans } = body;
+
     try {
-      const user = await db.select().from(users).where(eq(users.id, userId)).get();
+      const user = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId))
+        .get();
       if (!user) {
         set.status = 404;
-        return { success: false, message: `User ${userId} is not found` };
+        return { success: false, message: `User not found` };
+      }
+      const pc = await db.select().from(pcs).where(eq(pcs.id, pcId)).get()
+      if(!pc){
+        set.status = 404
+        return {
+          success : false,
+          message : `PC-${pcId} is not found`
+        }
+      }
+      if(pc.currentUserId !== userId){
+        set.status = 403
+        return {
+          success : false,
+          message : `user ${user.username} isn't logged in at this PC`
+        }
       }
 
       let totalHours = 0;
@@ -21,7 +41,6 @@ export const sessionRoutes = new Elysia({ prefix: "/api" }).post(
         if (p.planId === 3) totalHours += p.qty * 10;
       });
 
-      // Calculate price using the best plan combination
       let finalPrice = 0;
       let remaining = totalHours;
       finalPrice += Math.floor(remaining / 10) * 35;
@@ -32,25 +51,27 @@ export const sessionRoutes = new Elysia({ prefix: "/api" }).post(
 
       if (user.balance < finalPrice) {
         set.status = 403;
-        return { success: false, message: `User ${user.username} has insufficient balance` };
+        return {
+          success: false,
+          message: `Insufficient balance (Need ${finalPrice} Coins)`,
+        };
       }
 
-      const duration = totalHours * 60 * 60 * 1000;
+      const durationMs = totalHours * 60 * 60 * 1000;
 
       await db.transaction(async (tx) => {
-        const pc = await tx.select().from(pcs).where(eq(pcs.id, pcId)).get();
-        const start =
-          pc?.sessionEndTime && pc.sessionEndTime > Date.now()
-            ? pc.sessionEndTime
-            : Date.now();
+       
+        const currentEndTime = pc?.sessionEndTime ?? 0;
+        const baseTime =
+          currentEndTime > Date.now() ? currentEndTime : Date.now();
+        const newEndTime = baseTime + durationMs;
 
         await tx
           .update(pcs)
           .set({
             status: "online",
             currentUserId: user.id,
-            sessionStartTime: start,
-            sessionEndTime: start + duration,
+            sessionEndTime: newEndTime,
           })
           .where(eq(pcs.id, pcId));
 
@@ -59,11 +80,12 @@ export const sessionRoutes = new Elysia({ prefix: "/api" }).post(
           .set({ balance: user.balance - finalPrice })
           .where(eq(users.id, userId));
 
+        // Log Transaction
         await tx.insert(transactions).values({
           userId,
           type: "billing",
           coins: -finalPrice,
-          description: `Billing Packet: ${totalHours} Hours (PC-${pcId})`,
+          description: `Billing: +${totalHours}h (PC ${pcId})`,
           pcId,
           createdAt: Date.now(),
         });
@@ -71,12 +93,13 @@ export const sessionRoutes = new Elysia({ prefix: "/api" }).post(
 
       return {
         success: true,
-        message: `Billing plans added for PC-${pcId}, user ${user.username}, ${totalHours}h total`,
+        message: `Successfully added ${totalHours} hours to PC-${pcId}`,
+        newEndTime: new Date(Date.now() + durationMs).toISOString(),
       };
     } catch (err) {
       set.status = 500;
-      console.log(err);
-      return { success: false, message: `Backend error ${err}` };
+      console.error("Session Buy Error:", err);
+      return { success: false, message: `Internal server error` };
     }
   },
   {

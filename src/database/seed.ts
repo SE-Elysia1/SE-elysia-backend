@@ -14,7 +14,7 @@ export async function seed() {
     }).onConflictDoNothing();
 
     
-    console.log("🖥️  Generating 30 PCs...");
+    console.log("Generating 30 PCs...");
     for (let i = 1; i <= 30; i++) {
 
       const formattedNumber = `PC-${i.toString().padStart(2, '0')}`;

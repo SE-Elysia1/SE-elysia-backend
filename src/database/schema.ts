@@ -13,7 +13,6 @@ export const pcs = sqliteTable("pcs", {
     pcNumber: text("pc_number").unique().notNull(),
     status: text("status").$type<"online" | "offline" | "vacant">().default("vacant").notNull(),
     currentUserId: integer("currentUserId").references(() => users.id), //foreign key
-    sessionStartTime: integer("sessionStartTime"), 
     sessionEndTime: integer("sessionEndTime")
 });
 

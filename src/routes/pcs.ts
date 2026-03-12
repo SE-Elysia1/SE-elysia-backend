@@ -1,7 +1,8 @@
 import { Elysia, t } from "elysia";
 import { db } from "../database/db";
 import { pcs } from "../database/schema";
-import { asc } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
+
 
 export const pcRoutes = new Elysia({ prefix: "/api" }).get(
   "/pcs",
@@ -22,4 +23,19 @@ export const pcRoutes = new Elysia({ prefix: "/api" }).get(
       message: t.Optional(t.String()),
     }),
   },
-);
+)
+.get('/pcs/:id/timer', async ({params, set})=>{
+  const pc = await db.select().from(pcs).where(eq(pcs.id, Number(params.id))).get()
+  if(!pc){
+    set.status = 404
+    return{
+      success : false,
+      message : `Pc ${params.id} doesn't exist`
+    }
+  }
+  return {
+    success :true,
+    sessionEndTime : pc.sessionEndTime || 0,
+    status : pc.status
+  }
+})
