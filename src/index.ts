@@ -12,6 +12,7 @@ import { sessionRoutes } from "./routes/sessions";
 import { logRoutes } from "./routes/logs";
 import { topupRoutes } from "./routes/topup";
 import { userRoutes } from "./routes/users";
+import { adminRoutes } from "./routes/admin";
 
 // Uncomment to seed admin account and pc database
 // import { seed } from "./database/seed";
@@ -50,6 +51,7 @@ const app = new Elysia()
   .use(logRoutes)
   .use(topupRoutes)
   .use(userRoutes)
+  .use(adminRoutes)
   .listen(4000);
 
 console.log(
