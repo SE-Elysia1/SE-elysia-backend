@@ -20,7 +20,11 @@ export const authRoutes = new Elysia({ prefix: "/api" })
           return { success: false, message: "Username already exist" };
         }
 
-        const hashPwd = await Bun.password.hash(password);
+        const hashPwd = await Bun.password.hash(password, {
+          algorithm: "argon2id", // 🛡️ Explicitly tell Bun to use Argon2id
+          memoryCost: 65536, // Uses 64MB of RAM to make GPU cracking expensive
+          timeCost: 3, // Number of passes the algorithm makes
+        });
         await db.insert(users).values({
           username,
           password: hashPwd,
@@ -90,7 +94,6 @@ export const authRoutes = new Elysia({ prefix: "/api" })
           .set({
             status: "online",
             currentUserId: user.id,
-            
           })
           .where(eq(pcs.id, pcId));
 
@@ -138,7 +141,10 @@ export const authRoutes = new Elysia({ prefix: "/api" })
           .where(eq(pcs.id, pcId));
 
         console.log(`PC ID ${pcId} is now vacant again`);
-        return { success: true, message: `Logout for PC ID ${pcId} successful` };
+        return {
+          success: true,
+          message: `Logout for PC ID ${pcId} successful`,
+        };
       } catch (error) {
         console.log(`Logout error: ${error}`);
         set.status = 500;

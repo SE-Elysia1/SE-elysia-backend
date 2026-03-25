@@ -51,7 +51,11 @@ export const adminRoutes = new Elysia({ prefix: "/api/admin" })
         }
 
         if (newPassword) {
-          updateData.password = await Bun.password.hash(newPassword);
+          updateData.password = await Bun.password.hash(newPassword, {
+            algorithm: "argon2id",
+            memoryCost: 65536,
+            timeCost: 3,
+          });
         }
 
         await db.update(users).set(updateData).where(eq(users.id, targetId));

@@ -5,7 +5,11 @@ export async function seed() {
   console.log("Seeding database...");
 
  
-    const adminPassword = await Bun.password.hash("admin123");
+    const adminPassword = await Bun.password.hash("admin123", {
+      algorithm: "argon2id", 
+      memoryCost: 65536,     
+      timeCost: 3,          
+    });
     await db.insert(users).values({
       username: "admin",
       password: adminPassword,
