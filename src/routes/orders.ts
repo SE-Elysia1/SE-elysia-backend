@@ -6,56 +6,90 @@ import { eq } from "drizzle-orm";
 export const orderRoutes = new Elysia({ prefix: "/api" })
   .get(
     "/admin/orders",
-    async () => {
-      const rawOrders = await db
-        .select({
-          id: orders.id,
-          customer: users.username,
-          station: pcs.pcNumber,
-          itemsJson: orders.items,
-          totalPrice: orders.totalPrice,
-          status: orders.status,
-          time: orders.createdAt,
-        })
-        .from(orders)
-        .innerJoin(users, eq(orders.userId, users.id))
-        .innerJoin(pcs, eq(orders.pcId, pcs.id))
-        .where(eq(orders.status, "pending"))
-        .all();
+    async ({ query, set }) => {
+      const { requesterId } = query;
+      try {
+        const admin = await db
+          .select()
+          .from(users)
+          .where(eq(users.id, Number(requesterId)))
+          .get();
+        if (!admin || admin.role.toLowerCase() !== "admin") {
+          set.status = 403;
+          return {
+            success: false,
+            message: `Unauthorized Action!`,
+          };
+        }
 
-      const allFood = await db.select().from(foodMenu).all();
-      const foodMap = new Map(allFood.map((f) => [f.id, f.name]));
+        const rawOrders = await db
+          .select({
+            id: orders.id,
+            customer: users.username,
+            station: pcs.pcNumber,
+            itemsJson: orders.items,
+            totalPrice: orders.totalPrice,
+            status: orders.status,
+            time: orders.createdAt,
+          })
+          .from(orders)
+          .innerJoin(users, eq(orders.userId, users.id))
+          .innerJoin(pcs, eq(orders.pcId, pcs.id))
+          .where(eq(orders.status, "pending"))
+          .all();
 
-      return rawOrders.map((order) => {
-        const cart = JSON.parse(order.itemsJson);
-        const itemStrings = cart.map((item: any) => {
-          const foodName = foodMap.get(item.foodId) || "Unknown Item";
-          return `${item.qty}x ${foodName}`;
+        const allFood = await db.select().from(foodMenu).all();
+        const foodMap = new Map(allFood.map((f) => [f.id, f.name]));
+
+        return rawOrders.map((order) => {
+          const cart = JSON.parse(order.itemsJson);
+          const itemStrings = cart.map((item: any) => {
+            const foodName = foodMap.get(item.foodId) || "Unknown Item";
+            return `${item.qty}x ${foodName}`;
+          });
+
+          return {
+            id: order.id,
+            customer: order.customer,
+            station: order.station,
+            food: itemStrings.join(", "),
+            totalPrice: order.totalPrice,
+            status: order.status,
+            time: order.time,
+          };
         });
-
+      } catch (err) {
+        set.status = 500;
         return {
-          id: order.id,
-          customer: order.customer,
-          station: order.station,
-          food: itemStrings.join(", "),
-          totalPrice: order.totalPrice,
-          status: order.status,
-          time: order.time,
+          success: false,
+          message: `Backend Server error ${err}`,
         };
-      });
+      }
     },
     {
-      response: t.Array(
-        t.Object({
-          id: t.Number(),
-          customer: t.String(),
-          station: t.Any(),
-          food: t.String(),
-          totalPrice: t.Number(),
-          status: t.Union([t.Literal("pending"), t.Literal("done"), t.Null()]),
-          time: t.Any(),
+      query: t.Object({ requesterId: t.String() }),
+      response: {
+        200: t.Array(
+          t.Object({
+            id: t.Number(),
+            customer: t.String(),
+            station: t.Any(),
+            food: t.String(),
+            totalPrice: t.Number(),
+            status: t.Union([
+              t.Literal("pending"),
+              t.Literal("done"),
+              t.Null(),
+            ]),
+            time: t.Any(),
+          }),
+        ),
+        403: t.Object({
+          success: t.Boolean(),
+          message: t.String(),
         }),
-      ),
+        500: t.Any(),
+      },
     },
   )
   .post(
@@ -63,7 +97,11 @@ export const orderRoutes = new Elysia({ prefix: "/api" })
     async ({ body, set }) => {
       const { userId, cart, pcId } = body;
       try {
-        const user = await db.select().from(users).where(eq(users.id, userId)).get();
+        const user = await db
+          .select()
+          .from(users)
+          .where(eq(users.id, userId))
+          .get();
         if (!user) {
           set.status = 404;
           return { success: false, message: "User is not found" };
@@ -78,14 +116,20 @@ export const orderRoutes = new Elysia({ prefix: "/api" })
             .get();
           if (!food) {
             set.status = 404;
-            return { success: false, message: `Food ID ${item.foodId} not found in menu!` };
+            return {
+              success: false,
+              message: `Food ID ${item.foodId} not found in menu!`,
+            };
           }
           totalPrice += food.price * item.qty;
         }
 
         if (user.balance < totalPrice) {
           set.status = 400;
-          return { success: false, message: `User ${user.username} has insufficient balance` };
+          return {
+            success: false,
+            message: `User ${user.username} has insufficient balance`,
+          };
         }
 
         await db.transaction(async (tx) => {
@@ -123,9 +167,23 @@ export const orderRoutes = new Elysia({ prefix: "/api" })
   )
   .post(
     "/admin/orders/complete",
-    async ({ body, set }) => {
+    async ({ body, query, set }) => {
       const { OrderID } = body;
+      const { requesterId } = query;
       try {
+        const admin = await db
+          .select()
+          .from(users)
+          .where(eq(users.id, Number(requesterId)))
+          .get();
+        if (!admin || admin.role.toLowerCase() !== "admin") {
+          set.status = 403;
+          return {
+            success: false,
+            message: "Forbidden: Admin access required",
+          };
+        }
+
         const targetOrder = await db
           .select()
           .from(orders)
@@ -161,6 +219,7 @@ export const orderRoutes = new Elysia({ prefix: "/api" })
       }
     },
     {
+      query: t.Object({ requesterId: t.String() }),
       body: t.Object({ OrderID: t.Number() }),
       response: t.Object({
         success: t.Boolean(),
@@ -170,9 +229,23 @@ export const orderRoutes = new Elysia({ prefix: "/api" })
   )
   .delete(
     "/admin/orders/:id",
-    async ({ params, set }) => {
+    async ({ params, query, set }) => {
       const orderId = Number(params.id);
+      const { requesterId } = query;
       try {
+        const admin = await db
+          .select()
+          .from(users)
+          .where(eq(users.id, Number(requesterId)))
+          .get();
+        if (!admin || admin.role.toLowerCase() !== "admin") {
+          set.status = 403;
+          return {
+            success: false,
+            message: "Forbidden: Admin access required",
+          };
+        }
+
         const targetOrder = await db
           .select()
           .from(orders)
@@ -181,7 +254,10 @@ export const orderRoutes = new Elysia({ prefix: "/api" })
 
         if (!targetOrder) {
           set.status = 404;
-          return { success: false, message: `Order ${orderId} cannot be found` };
+          return {
+            success: false,
+            message: `Order ${orderId} cannot be found`,
+          };
         }
 
         await db.delete(orders).where(eq(orders.id, orderId));
@@ -194,6 +270,7 @@ export const orderRoutes = new Elysia({ prefix: "/api" })
     },
     {
       params: t.Object({ id: t.String() }),
+      query: t.Object({ requesterId: t.String() }),
       response: t.Object({
         success: t.Boolean(),
         message: t.String(),
