@@ -69,4 +69,32 @@ export const userRoutes = new Elysia({ prefix: "/api/user" }).put(
       newPassword: t.Optional(t.String()),
     }),
   },
-);
+)
+.get("/:userId", async ({params, set})=>{
+  try{
+    const targetId = Number(params.userId)
+    const user = await db.select({username : users.username, balance : users.balance}).from(users).where(eq(users.id, targetId)).get()
+    if(!user){
+      set.status = 404
+      return{
+        success :false,
+        message : `User not found`
+      }
+    }
+    return {
+      success : true,
+      data: user,
+    }
+
+  }catch(err){
+    set.status =500
+    return{
+      success : false,
+      message : `Server error ${err}`
+    }
+  }
+},{
+  params : t.Object({
+    userId : t.String()
+  })
+})

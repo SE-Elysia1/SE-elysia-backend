@@ -21,7 +21,7 @@ export const authRoutes = new Elysia({ prefix: "/api" })
         }
 
         const hashPwd = await Bun.password.hash(password, {
-          algorithm: "argon2id", // 🛡️ Explicitly tell Bun to use Argon2id
+          algorithm: "argon2id", // Explicitly tell Bun to use Argon2id
           memoryCost: 65536, // Uses 64MB of RAM to make GPU cracking expensive
           timeCost: 3, // Number of passes the algorithm makes
         });
