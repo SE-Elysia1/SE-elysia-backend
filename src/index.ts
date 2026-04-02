@@ -29,6 +29,16 @@ const app = new Elysia()
     swagger({
       documentation: {
         info: { title: "SE-Elysia API DOCS", version: "2.0.0" },
+        components:{
+          securitySchemes:{
+            bearerAuth:{
+              type : 'http',
+              scheme : 'bearer',
+              bearerFormat : "JWT",
+            }
+          }
+        },
+        security : [{bearerAuth : []}]
       },
     }),
   )

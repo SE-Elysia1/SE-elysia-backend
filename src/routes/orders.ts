@@ -1,100 +1,43 @@
 import { Elysia, t } from "elysia";
+import { jwt } from "@elysiajs/jwt";
 import { db } from "../database/db";
 import { orders, users, pcs, foodMenu, transactions } from "../database/schema";
 import { eq } from "drizzle-orm";
 
 export const orderRoutes = new Elysia({ prefix: "/api" })
-  .get(
-    "/admin/orders",
-    async ({ query, set }) => {
-      const { requesterId } = query;
-      try {
-        const admin = await db
-          .select()
-          .from(users)
-          .where(eq(users.id, Number(requesterId)))
-          .get();
-        if (!admin || admin.role.toLowerCase() !== "admin") {
-          set.status = 403;
-          return {
-            success: false,
-            message: `Unauthorized Action!`,
-          };
-        }
-
-        const rawOrders = await db
-          .select({
-            id: orders.id,
-            customer: users.username,
-            station: pcs.pcNumber,
-            itemsJson: orders.items,
-            totalPrice: orders.totalPrice,
-            status: orders.status,
-            time: orders.createdAt,
-          })
-          .from(orders)
-          .innerJoin(users, eq(orders.userId, users.id))
-          .innerJoin(pcs, eq(orders.pcId, pcs.id))
-          .where(eq(orders.status, "pending"))
-          .all();
-
-        const allFood = await db.select().from(foodMenu).all();
-        const foodMap = new Map(allFood.map((f) => [f.id, f.name]));
-
-        return rawOrders.map((order) => {
-          const cart = JSON.parse(order.itemsJson);
-          const itemStrings = cart.map((item: any) => {
-            const foodName = foodMap.get(item.foodId) || "Unknown Item";
-            return `${item.qty}x ${foodName}`;
-          });
-
-          return {
-            id: order.id,
-            customer: order.customer,
-            station: order.station,
-            food: itemStrings.join(", "),
-            totalPrice: order.totalPrice,
-            status: order.status,
-            time: order.time,
-          };
-        });
-      } catch (err) {
-        set.status = 500;
-        return {
-          success: false,
-          message: `Backend Server error ${err}`,
-        };
-      }
-    },
-    {
-      query: t.Object({ requesterId: t.String() }),
-      response: {
-        200: t.Array(
-          t.Object({
-            id: t.Number(),
-            customer: t.String(),
-            station: t.Any(),
-            food: t.String(),
-            totalPrice: t.Number(),
-            status: t.Union([
-              t.Literal("pending"),
-              t.Literal("done"),
-              t.Null(),
-            ]),
-            time: t.Any(),
-          }),
-        ),
-        403: t.Object({
-          success: t.Boolean(),
-          message: t.String(),
-        }),
-        500: t.Any(),
-      },
-    },
+  .use(
+    jwt({
+      name: "jwt",
+      secret: process.env.JWT_SECRET!,
+    }),
   )
+
   .post(
     "/order",
-    async ({ body, set }) => {
+    async ({ body, headers, jwt, set }) => {
+      // 1. Verify token
+      const token = headers.authorization?.replace("Bearer ", "");
+      if (!token) {
+        set.status = 401;
+        return { success: false, message: "Unauthorized: No token provided" };
+      }
+
+      const payload = await jwt.verify(token);
+      if (!payload) {
+        set.status = 401;
+        return {
+          success: false,
+          message: "Unauthorized: Invalid or expired token",
+        };
+      }
+      if (String(payload.userId) !== String(body.userId)) {
+        set.status = 403;
+        return {
+          success: false,
+          message: "Forbidden: userId does not match token",
+        };
+      }
+
       const { userId, cart, pcId } = body;
       try {
         const user = await db
@@ -165,115 +108,190 @@ export const orderRoutes = new Elysia({ prefix: "/api" })
       }),
     },
   )
-  .post(
-    "/admin/orders/complete",
-    async ({ body, query, set }) => {
-      const { OrderID } = body;
-      const { requesterId } = query;
-      try {
-        const admin = await db
-          .select()
-          .from(users)
-          .where(eq(users.id, Number(requesterId)))
-          .get();
-        if (!admin || admin.role.toLowerCase() !== "admin") {
+
+  .group("/admin", (app) =>
+    app
+      .use(
+        jwt({
+          name: "jwt",
+          secret: process.env.JWT_SECRET!,
+        }),
+      )
+      .derive(async ({ headers, jwt, set }) => {
+        const token = headers.authorization?.replace("Bearer ", "");
+        if (!token) {
+          set.status = 401;
+          throw new Error("Unauthorized: No token provided");
+        }
+
+        const payload = await jwt.verify(token);
+        if (!payload) {
+          set.status = 401;
+          throw new Error("Unauthorized: Invalid or expired token");
+        }
+
+        if (payload.role !== "admin") {
           set.status = 403;
-          return {
-            success: false,
-            message: "Forbidden: Admin access required",
-          };
+          throw new Error("Forbidden: Admin access only");
         }
 
-        const targetOrder = await db
-          .select()
-          .from(orders)
-          .where(eq(orders.id, OrderID))
-          .get();
+        return { adminPayload: payload };
+      })
 
-        if (!targetOrder) {
-          set.status = 404;
-          return { success: false, message: "Order not found" };
-        }
+      .get(
+        "/orders",
+        async ({ set }) => {
+          try {
+            const rawOrders = await db
+              .select({
+                id: orders.id,
+                customer: users.username,
+                station: pcs.pcNumber,
+                itemsJson: orders.items,
+                totalPrice: orders.totalPrice,
+                status: orders.status,
+                time: orders.createdAt,
+              })
+              .from(orders)
+              .innerJoin(users, eq(orders.userId, users.id))
+              .innerJoin(pcs, eq(orders.pcId, pcs.id))
+              .where(eq(orders.status, "pending"))
+              .all();
 
-        await db.transaction(async (tx) => {
-          await tx
-            .update(orders)
-            .set({ status: "done" })
-            .where(eq(orders.id, OrderID));
+            const allFood = await db.select().from(foodMenu).all();
+            const foodMap = new Map(allFood.map((f) => [f.id, f.name]));
 
-          await tx.insert(transactions).values({
-            userId: targetOrder.userId,
-            type: "food",
-            coins: -targetOrder.totalPrice,
-            description: `Food Order: ${targetOrder.id}`,
-            pcId: targetOrder.pcId,
-            createdAt: Date.now(),
-          });
-        });
+            return rawOrders.map((order) => {
+              const cart = JSON.parse(order.itemsJson);
+              const itemStrings = cart.map((item: any) => {
+                const foodName = foodMap.get(item.foodId) || "Unknown Item";
+                return `${item.qty}x ${foodName}`;
+              });
 
-        return { success: true, message: `Order ${OrderID} marked as done` };
-      } catch (err) {
-        console.log(err);
-        set.status = 500;
-        return { success: false, message: `Backend error ${err}` };
-      }
-    },
-    {
-      query: t.Object({ requesterId: t.String() }),
-      body: t.Object({ OrderID: t.Number() }),
-      response: t.Object({
-        success: t.Boolean(),
-        message: t.Optional(t.String()),
-      }),
-    },
-  )
-  .delete(
-    "/admin/orders/:id",
-    async ({ params, query, set }) => {
-      const orderId = Number(params.id);
-      const { requesterId } = query;
-      try {
-        const admin = await db
-          .select()
-          .from(users)
-          .where(eq(users.id, Number(requesterId)))
-          .get();
-        if (!admin || admin.role.toLowerCase() !== "admin") {
-          set.status = 403;
-          return {
-            success: false,
-            message: "Forbidden: Admin access required",
-          };
-        }
+              return {
+                id: order.id,
+                customer: order.customer,
+                station: order.station,
+                food: itemStrings.join(", "),
+                totalPrice: order.totalPrice,
+                status: order.status,
+                time: order.time,
+              };
+            });
+          } catch (err) {
+            set.status = 500;
+            return [];
+          }
+        },
+        {
+          response: {
+            200: t.Array(
+              t.Object({
+                id: t.Number(),
+                customer: t.String(),
+                station: t.Any(),
+                food: t.String(),
+                totalPrice: t.Number(),
+                status: t.Union([
+                  t.Literal("pending"),
+                  t.Literal("done"),
+                  t.Null(),
+                ]),
+                time: t.Any(),
+              }),
+            ),
+            500: t.Any(),
+          },
+        },
+      )
 
-        const targetOrder = await db
-          .select()
-          .from(orders)
-          .where(eq(orders.id, orderId))
-          .get();
+      .post(
+        "/orders/complete",
+        async ({ body, set }) => {
+          const { OrderID } = body;
+          try {
+            const targetOrder = await db
+              .select()
+              .from(orders)
+              .where(eq(orders.id, OrderID))
+              .get();
 
-        if (!targetOrder) {
-          set.status = 404;
-          return {
-            success: false,
-            message: `Order ${orderId} cannot be found`,
-          };
-        }
+            if (!targetOrder) {
+              set.status = 404;
+              return { success: false, message: "Order not found" };
+            }
 
-        await db.delete(orders).where(eq(orders.id, orderId));
-        return { success: true, message: `Order ${orderId} has been deleted` };
-      } catch (err) {
-        set.status = 500;
-        console.log(err);
-        return { success: false, message: `Backend error ${err}` };
-      }
-    },
-    {
-      params: t.Object({ id: t.String() }),
-      query: t.Object({ requesterId: t.String() }),
-      response: t.Object({
-        success: t.Boolean(),
-        message: t.String(),
-      }),
-    },
+            await db.transaction(async (tx) => {
+              await tx
+                .update(orders)
+                .set({ status: "done" })
+                .where(eq(orders.id, OrderID));
+
+              await tx.insert(transactions).values({
+                userId: targetOrder.userId,
+                type: "food",
+                coins: -targetOrder.totalPrice,
+                description: `Food Order: ${targetOrder.id}`,
+                pcId: targetOrder.pcId,
+                createdAt: Date.now(),
+              });
+            });
+
+            return {
+              success: true,
+              message: `Order ${OrderID} marked as done`,
+            };
+          } catch (err) {
+            console.log(err);
+            set.status = 500;
+            return { success: false, message: `Backend error ${err}` };
+          }
+        },
+        {
+          body: t.Object({ OrderID: t.Number() }),
+          response: t.Object({
+            success: t.Boolean(),
+            message: t.Optional(t.String()),
+          }),
+        },
+      )
+
+      .delete(
+        "/orders/:id",
+        async ({ params, set }) => {
+          const orderId = Number(params.id);
+          try {
+            const targetOrder = await db
+              .select()
+              .from(orders)
+              .where(eq(orders.id, orderId))
+              .get();
+
+            if (!targetOrder) {
+              set.status = 404;
+              return {
+                success: false,
+                message: `Order ${orderId} cannot be found`,
+              };
+            }
+
+            await db.delete(orders).where(eq(orders.id, orderId));
+            return {
+              success: true,
+              message: `Order ${orderId} has been deleted`,
+            };
+          } catch (err) {
+            set.status = 500;
+            console.log(err);
+            return { success: false, message: `Backend error ${err}` };
+          }
+        },
+        {
+          params: t.Object({ id: t.String() }),
+          response: t.Object({
+            success: t.Boolean(),
+            message: t.String(),
+          }),
+        },
+      ),
   );

@@ -1,9 +1,18 @@
 import { Elysia, t } from "elysia";
+import { jwt } from "@elysiajs/jwt";
 import { db } from "../database/db";
 import { users, pcs } from "../database/schema";
 import { eq } from "drizzle-orm";
 
 export const authRoutes = new Elysia({ prefix: "/api" })
+  .use(
+    jwt({
+      name: "jwt",
+      secret: process.env.JWT_SECRET!,
+    }),
+  )
+
+
   .post(
     "/register",
     async ({ body, set }) => {
@@ -21,10 +30,11 @@ export const authRoutes = new Elysia({ prefix: "/api" })
         }
 
         const hashPwd = await Bun.password.hash(password, {
-          algorithm: "argon2id", // Explicitly tell Bun to use Argon2id
-          memoryCost: 65536, // Uses 64MB of RAM to make GPU cracking expensive
-          timeCost: 3, // Number of passes the algorithm makes
+          algorithm: "argon2id",
+          memoryCost: 65536,
+          timeCost: 3,
         });
+
         await db.insert(users).values({
           username,
           password: hashPwd,
@@ -32,34 +42,25 @@ export const authRoutes = new Elysia({ prefix: "/api" })
           balance: 0,
         });
 
-        console.log(`account with username ${username} has been created`);
         return {
           success: true,
-          message: `account with username ${username} has been created`,
+          message: `Account with username ${username} has been created`,
         };
       } catch (err) {
-        console.log("internal server error", err);
         set.status = 500;
-        return {
-          success: false,
-          message: "Failed creating user, internal server error",
-        };
+        return { success: false, message: `Failed creating user: ${err}` };
       }
     },
     {
-      body: t.Object({
-        username: t.String(),
-        password: t.String(),
-      }),
-      response: t.Object({
-        success: t.Boolean(),
-        message: t.String(),
-      }),
+      body: t.Object({ username: t.String(), password: t.String() }),
+      response: t.Object({ success: t.Boolean(), message: t.String() }),
     },
   )
+
+  
   .post(
     "/login",
-    async ({ body, set }) => {
+    async ({ body, set, jwt }) => {
       const { username, password, pcId } = body;
       try {
         const user = await db
@@ -91,15 +92,20 @@ export const authRoutes = new Elysia({ prefix: "/api" })
 
         await db
           .update(pcs)
-          .set({
-            status: "online",
-            currentUserId: user.id,
-          })
+          .set({ status: "online", currentUserId: user.id })
           .where(eq(pcs.id, pcId));
+
+        
+        const token = await jwt.sign({
+          userId: String(user.id),
+          role: user.role,
+          exp: Math.floor(Date.now() / 1000) + 60 * 60 * 8, 
+        });
 
         return {
           success: true,
           message: `Welcome, ${username}! You are now logged into ${targetPc.pcNumber}`,
+          token,  
           user: { id: user.id, username: user.username, role: user.role },
         };
       } catch (error) {
@@ -116,16 +122,15 @@ export const authRoutes = new Elysia({ prefix: "/api" })
       response: t.Object({
         success: t.Boolean(),
         message: t.String(),
+        token: t.Optional(t.String()),
         user: t.Optional(
-          t.Object({
-            id: t.Number(),
-            username: t.String(),
-            role: t.String(),
-          }),
+          t.Object({ id: t.Number(), username: t.String(), role: t.String() }),
         ),
       }),
     },
   )
+
+ 
   .post(
     "/logout",
     async ({ body, set }) => {
@@ -133,32 +138,17 @@ export const authRoutes = new Elysia({ prefix: "/api" })
       try {
         await db
           .update(pcs)
-          .set({
-            status: "vacant",
-            currentUserId: null,
-            sessionEndTime: null,
-          })
+          .set({ status: "vacant", currentUserId: null, sessionEndTime: null })
           .where(eq(pcs.id, pcId));
 
-        console.log(`PC ID ${pcId} is now vacant again`);
-        return {
-          success: true,
-          message: `Logout for PC ID ${pcId} successful`,
-        };
+        return { success: true, message: `Logout for PC ID ${pcId} successful` };
       } catch (error) {
-        console.log(`Logout error: ${error}`);
         set.status = 500;
-        return {
-          success: false,
-          message: `Backend server error during logout: ${error}`,
-        };
+        return { success: false, message: `Backend server error during logout: ${error}` };
       }
     },
     {
       body: t.Object({ pcId: t.Number() }),
-      response: t.Object({
-        success: t.Boolean(),
-        message: t.String(),
-      }),
+      response: t.Object({ success: t.Boolean(), message: t.String() }),
     },
   );
