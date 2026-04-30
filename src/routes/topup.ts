@@ -21,12 +21,15 @@ export const topupRoutes = new Elysia({ prefix: "/api" })
       }
 
       const payload = await jwt.verify(token);
-      if (!payload) {
+      if (!payload || !payload.userId) {
         set.status = 401;
-        return {
-          success: false,
-          message: "Unauthorized: Invalid or expired token",
-        };
+        return { success: false, message: "Unauthorized: Invalid token" };
+      }
+
+      
+      if (Number(payload.userId) !== Number(body.userId)) {
+        set.status = 403;
+        return { success: false, message: "Forbidden: Identity mismatch" };
       }
 
       if (String(payload.userId) !== String(body.userId)) {
@@ -37,7 +40,7 @@ export const topupRoutes = new Elysia({ prefix: "/api" })
         };
       }
 
-      const { userId, amount } = body;
+      const { userId, amount, pcId } = body;
 
       if (amount <= 0) {
         set.status = 400;
@@ -66,6 +69,7 @@ export const topupRoutes = new Elysia({ prefix: "/api" })
 
           await tx.insert(transactions).values({
             userId,
+            pcId,
             type: "topup",
             coins: amount,
             incomeIdr: idr,
@@ -89,6 +93,7 @@ export const topupRoutes = new Elysia({ prefix: "/api" })
       body: t.Object({
         userId: t.Number(),
         amount: t.Number(),
+        pcId : t.Number(),
       }),
       response: t.Object({
         success: t.Boolean(),
