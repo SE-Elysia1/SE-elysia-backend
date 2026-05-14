@@ -28,7 +28,7 @@ const app = new Elysia()
   .use(
     swagger({
       documentation: {
-        info: { title: "SE-Elysia API DOCS", version: "2.0.0" },
+        info: { title: "SE-LM01 API DOCS", version: "2.0.0" },
         components:{
           securitySchemes:{
             bearerAuth:{

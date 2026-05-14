@@ -15,7 +15,6 @@ export const orderRoutes = new Elysia({ prefix: "/api" })
   .post(
     "/order",
     async ({ body, headers, jwt, set }) => {
-      // 1. Verify token
       const token = headers.authorization?.replace("Bearer ", "");
       if (!token) {
         set.status = 401;
@@ -76,17 +75,35 @@ export const orderRoutes = new Elysia({ prefix: "/api" })
         }
 
         await db.transaction(async (tx) => {
-          await tx.insert(orders).values({
-            userId,
-            pcId,
-            items: JSON.stringify(cart),
-            totalPrice,
-            createdAt: Date.now(),
-          });
+          // Insert order and immediately get the generated ID
+          const newOrder = await tx
+            .insert(orders)
+            .values({
+              userId,
+              pcId,
+              items: JSON.stringify(cart),
+              totalPrice,
+              status: "done", 
+              createdAt: Date.now(),
+            })
+            .returning()
+            .get();
+
+          // Deduct balance
           await tx
             .update(users)
             .set({ balance: user.balance - totalPrice })
             .where(eq(users.id, userId));
+
+          // Log transaction immediately
+          await tx.insert(transactions).values({
+            userId,
+            type: "food",
+            coins: -totalPrice,
+            description: `Food Order: ${newOrder.id}`,
+            pcId,
+            createdAt: Date.now(),
+          });
         });
 
         return { success: true, message: "Order has been placed" };
@@ -202,57 +219,6 @@ export const orderRoutes = new Elysia({ prefix: "/api" })
             ),
             500: t.Any(),
           },
-        },
-      )
-
-      .post(
-        "/orders/complete",
-        async ({ body, set }) => {
-          const { OrderID } = body;
-          try {
-            const targetOrder = await db
-              .select()
-              .from(orders)
-              .where(eq(orders.id, OrderID))
-              .get();
-
-            if (!targetOrder) {
-              set.status = 404;
-              return { success: false, message: "Order not found" };
-            }
-
-            await db.transaction(async (tx) => {
-              await tx
-                .update(orders)
-                .set({ status: "done" })
-                .where(eq(orders.id, OrderID));
-
-              await tx.insert(transactions).values({
-                userId: targetOrder.userId,
-                type: "food",
-                coins: -targetOrder.totalPrice,
-                description: `Food Order: ${targetOrder.id}`,
-                pcId: targetOrder.pcId,
-                createdAt: Date.now(),
-              });
-            });
-
-            return {
-              success: true,
-              message: `Order ${OrderID} marked as done`,
-            };
-          } catch (err) {
-            console.log(err);
-            set.status = 500;
-            return { success: false, message: `Backend error ${err}` };
-          }
-        },
-        {
-          body: t.Object({ OrderID: t.Number() }),
-          response: t.Object({
-            success: t.Boolean(),
-            message: t.Optional(t.String()),
-          }),
         },
       )
 
