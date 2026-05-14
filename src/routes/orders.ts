@@ -2,7 +2,7 @@ import { Elysia, t } from "elysia";
 import { jwt } from "@elysiajs/jwt";
 import { db } from "../database/db";
 import { orders, users, pcs, foodMenu, transactions } from "../database/schema";
-import { eq } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 
 export const orderRoutes = new Elysia({ prefix: "/api" })
   .use(
@@ -79,6 +79,18 @@ export const orderRoutes = new Elysia({ prefix: "/api" })
             success: false,
             message: `User ${user.username} has insufficient balance`,
           };
+        }
+
+        const recentOrder = await db
+          .select()
+          .from(orders)
+          .where(eq(orders.userId, userId))
+          .orderBy(desc(orders.createdAt))
+          .get();
+
+        if (recentOrder && Date.now() - recentOrder.createdAt < 5000) {
+          set.status = 429;
+          return { success: false, message: "Please wait before placing another order" };
         }
 
         await db.transaction(async (tx) => {
