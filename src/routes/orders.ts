@@ -50,6 +50,8 @@ export const orderRoutes = new Elysia({ prefix: "/api" })
         }
 
         let totalPrice = 0;
+        const foodMap = new Map<number, string>();
+
         for (const item of cart) {
           const food = await db
             .select()
@@ -64,7 +66,12 @@ export const orderRoutes = new Elysia({ prefix: "/api" })
             };
           }
           totalPrice += food.price * item.qty;
+          foodMap.set(item.foodId, food.name);
         }
+
+        const orderDescription = cart
+          .map((item) => `${item.qty}x ${foodMap.get(item.foodId) ?? "Unknown Item"}`)
+          .join(", ");
 
         if (user.balance < totalPrice) {
           set.status = 400;
@@ -75,32 +82,25 @@ export const orderRoutes = new Elysia({ prefix: "/api" })
         }
 
         await db.transaction(async (tx) => {
-          // Insert order and immediately get the generated ID
-          const newOrder = await tx
-            .insert(orders)
-            .values({
-              userId,
-              pcId,
-              items: JSON.stringify(cart),
-              totalPrice,
-              status: "done", 
-              createdAt: Date.now(),
-            })
-            .returning()
-            .get();
+          await tx.insert(orders).values({
+            userId,
+            pcId,
+            items: JSON.stringify(cart),
+            totalPrice,
+            status: "done",
+            createdAt: Date.now(),
+          });
 
-          // Deduct balance
           await tx
             .update(users)
             .set({ balance: user.balance - totalPrice })
             .where(eq(users.id, userId));
 
-          // Log transaction immediately
           await tx.insert(transactions).values({
             userId,
             type: "food",
             coins: -totalPrice,
-            description: `Food Order: ${newOrder.id}`,
+            description: orderDescription,
             pcId,
             createdAt: Date.now(),
           });
