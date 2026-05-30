@@ -68,10 +68,15 @@ export const authRoutes = new Elysia({ prefix: "/api" })
           .from(users)
           .where(eq(users.username, username))
           .get();
-
-        if (!user || !(await Bun.password.verify(password, user.password))) {
+        if(!user){
           set.status = 401;
-          return { success: false, message: "Invalid credentials" };
+          return {
+            success : false, message : "Account doesn't exist, Sign up an account first"
+          }
+        }
+        else if (!(await Bun.password.verify(password, user.password))) {
+          set.status = 401;
+          return { success: false, message: "Invalid Password" };
         }
 
         const targetPc = await db
